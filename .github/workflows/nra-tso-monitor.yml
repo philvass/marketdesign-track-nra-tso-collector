@@ -1,0 +1,96 @@
+name: MarketDesign.ai NRA/TSO monitor
+
+on:
+  schedule:
+    - cron: "37 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Collector mode"
+        type: choice
+        options: [dry-run, submit, bootstrap]
+        default: dry-run
+      source:
+        description: "Source key or 'all'"
+        type: choice
+        options: [all, cre, bnetza, ofgem, rte, neso, german-tsos]
+        default: all
+      limit:
+        description: "Max documents per source"
+        default: "25"
+
+concurrency:
+  group: nra-tso-monitor
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || vars.TRACK_AUTOMATION_ENABLED == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        source: [cre, bnetza, ofgem, rte, neso, german-tsos]
+    steps:
+      - name: Skip if a single source was requested
+        id: gate
+        run: |
+          REQ="${{ github.event.inputs.source || 'all' }}"
+          if [ "$REQ" != "all" ] && [ "$REQ" != "${{ matrix.source }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Restore collector state
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: state-${{ matrix.source }}-${{ github.run_id }}
+          restore-keys: |
+            state-${{ matrix.source }}-
+
+      - name: Run collector
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TRACK_INGEST_URL: ${{ vars.TRACK_INGEST_URL }}
+          TRACK_INGEST_TOKEN: ${{ secrets.TRACK_INGEST_TOKEN }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'submit' }}"
+          LIMIT="${{ github.event.inputs.limit || '25' }}"
+          case "$MODE" in
+            submit)    FLAG="--submit" ;;
+            bootstrap) FLAG="--bootstrap-state" ;;
+            *)         FLAG="--dry-run" ;;
+          esac
+          python core.py --source "${{ matrix.source }}" $FLAG --limit "$LIMIT" --json \
+            | tee "run-report-${{ matrix.source }}.json"
+
+      - name: Save collector state
+        if: steps.gate.outputs.run == 'true' && always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: state-${{ matrix.source }}-${{ github.run_id }}
+
+      - name: Upload run report
+        if: steps.gate.outputs.run == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nra-tso-${{ matrix.source }}-${{ github.run_id }}
+          path: run-report-${{ matrix.source }}.json
+          retention-days: 14
