@@ -35,12 +35,19 @@ def _parse_date(text: str) -> str | None:
 def discover(session):
     found: dict[str, Candidate] = {}
 
+    diagnostics = []
     for rel in LISTINGS:
         try:
             r = get_with_retry(session, urljoin(BASE, rel), timeout=60)
-        except CollectorError:
+        except CollectorError as exc:
+            diagnostics.append(f"{rel}: {exc}")
             continue
         soup = BeautifulSoup(r.text, "html.parser")
+        if not soup.select("div.consultation"):
+            title_el = soup.find("title")
+            diagnostics.append(
+                f"{rel}: HTTP {r.status_code}, {len(r.text)}B, no items, "
+                f"title={title_el.get_text(strip=True)[:60] if title_el else '?'}")
         for item in soup.select("div.consultation"):
             link = item.select_one("a.read-more[href]") or item.select_one("a[href]")
             h2 = item.find("h2")
@@ -57,7 +64,7 @@ def discover(session):
             found.setdefault(c.source_id, c)
 
     if not found:
-        raise CollectorError("NEMO Committee discovery returned no candidates")
+        raise CollectorError("NEMO Committee discovery returned no candidates: " + "; ".join(diagnostics))
     return urljoin(BASE, "news"), list(found.values())
 
 

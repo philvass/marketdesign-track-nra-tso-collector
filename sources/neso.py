@@ -109,16 +109,18 @@ def fetch_content(session, candidate: Candidate) -> str:
     if not candidate.title:
         candidate.title = candidate.source_id
 
-    main = soup.find("main") or soup
+    main = soup.find("article") or soup.find("main") or soup
     text = html_to_text(main)
 
+    # NESO pages inline ~1.2MB of assets and nav; the attached PDF is the
+    # authoritative content whenever one exists.
     doc_link = main.select_one('a[href*="/document/"][href$="/download"]')
-    if doc_link and len(text) < 4000:
+    if doc_link:
         try:
             pr = get_with_retry(session, urljoin(BASE, doc_link["href"]), timeout=90)
             pdf_text = extract_pdf_text(pr.content)
             if pdf_text:
-                text = (text + "\n\n" + pdf_text)[:MAX_CONTENT_CHARS]
+                return (f"{candidate.title}\n\n" + pdf_text)[:MAX_CONTENT_CHARS]
         except CollectorError:
             pass
     return text
