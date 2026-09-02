@@ -285,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
             content = source.fetch_content(session, candidate)
             if len(content) < 200:
                 raise CollectorError(f"Too little source text extracted from {candidate.url}")
-        except CollectorError as exc:
+        except RuntimeError as exc:
             results.append({
                 "candidate": asdict(candidate),
                 "skipped": True,
@@ -356,6 +356,6 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except CollectorError as exc:
+    except RuntimeError as exc:
         print(json.dumps({"ok": False, "collector_version": VERSION, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         raise SystemExit(2)

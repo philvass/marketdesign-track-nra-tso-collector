@@ -20,6 +20,18 @@ editorial review.
 | `aib` | AIB (EECS/GO) | news teasers + sitemap lastmod tracking of rules/residual-mix pages |
 | `nbm` | Nordic TSOs (NBM) | WordPress REST API (news, publications, consultations, guides) |
 | `dgclima` | EC DG CLIMA (EU ETS) | news listing (carbon-keyword filter) + Better Regulation API initiatives |
+| `creg` | CREG (BE NRA) | Drupal faceted publications listing, electricity market themes |
+| `acm` | ACM (NL NRA) | Drupal search (Energie + Elektriciteit filters; WAF needs Referer + retry) |
+| `elexon` | Elexon (GB BSC) | BSC WordPress REST API: mod-proposals (by modified) + consultations + news |
+| `arera` | ARERA (IT NRA) | atti-e-provvedimenti listing (Delibera+Consultazione, settore=4, /R/eel+/R/com) |
+| `ceer` | CEER | WordPress REST API: electricity publications (excl. national monitoring) + consultations |
+| `recs` | RECS International | WP REST `news` CPT (NOT `posts` — spam-compromised) + /documents inline JSON |
+| `energinet` | Energinet (DK TSO) | Umbraco FacetedEnerListApi JSON (news + ancillary-services nodes) |
+| `tennet` | TenneT (NL/DE TSO) | /news __NEXT_DATA__ JSON (teaser-only: article pages are WAF-blocked) |
+
+Deferred: **Elia** (elia.be) — hard Cloudflare JS challenge on every path; needs a
+real browser (Playwright) to scrape. Most Elia rule changes surface via CREG
+approvals anyway.
 
 ## Local usage
 
