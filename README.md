@@ -15,6 +15,11 @@ editorial review.
 | `rte` | RTE (FR TSO) | services-rte.com news JSON API (cookie-primed) + concerte.fr RSS |
 | `neso` | NESO (GB SO) | rss.xml firehose (noise-filtered) + code-modification sitemap |
 | `german-tsos` | 50Hertz/Amprion/TenneT/TransnetBW | netztransparenz.de + regelleistung.net LotesNewsXSP JSON APIs (anonymous bootstrap login) |
+| `jao` | JAO | resource-center rules library + consultations + news RSS (noise-filtered) |
+| `nemo` | NEMO Committee | news/publications/consultations listings (full history, single pages) |
+| `aib` | AIB (EECS/GO) | news teasers + sitemap lastmod tracking of rules/residual-mix pages |
+| `nbm` | Nordic TSOs (NBM) | WordPress REST API (news, publications, consultations, guides) |
+| `dgclima` | EC DG CLIMA (EU ETS) | news listing (carbon-keyword filter) + Better Regulation API initiatives |
 
 ## Local usage
 
