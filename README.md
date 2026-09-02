@@ -28,6 +28,9 @@ editorial review.
 | `recs` | RECS International | WP REST `news` CPT (NOT `posts` — spam-compromised) + /documents inline JSON |
 | `energinet` | Energinet (DK TSO) | Umbraco FacetedEnerListApi JSON (news + ancillary-services nodes) |
 | `tennet` | TenneT (NL/DE TSO) | /news __NEXT_DATA__ JSON (teaser-only: article pages are WAF-blocked) |
+| `nordpool` | Nord Pool | exchange-message-list RSS (full bodies inline; UMM/operational feeds never touched) |
+| `omie` | OMIE | notas-de-prensa listing (PDFs; monthly price reports excluded) |
+| `gme` | GME | electricity news archive (results-noise filtered) + DTF technical rules |
 
 Deferred: **Elia** (elia.be) — hard Cloudflare JS challenge on every path; needs a
 real browser (Playwright) to scrape. Most Elia rule changes surface via CREG
