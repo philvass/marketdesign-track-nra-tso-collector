@@ -20,6 +20,7 @@ DOCUMENT_TYPE = "MARKET_OPERATOR"
 
 BASE = "https://www.mercatoelettrico.org"
 NEWS = f"{BASE}/it-it/Home/MediaGME/ArchivioNews"
+CONSULTATIONS = f"{BASE}/it-it/Home/Consultazioni/Mercati/MercatoElettrico"
 DTF_PAGES = [
     f"{BASE}/it-it/Home/Accesso-ai-Mercati/Elettricita/MercatiElettrici/Regole/DTF-MPE",
 ]
@@ -89,9 +90,31 @@ def discover(session):
                 f"gme-dtf-{key}", f"GME {title}" if not title.lower().startswith("gme") else title,
                 date, PORTALS + fname))
 
+    # Public consultations (DCOs) — the strongest design signal; newest first.
+    try:
+        r = get_with_retry(session, CONSULTATIONS, timeout=45)
+        soup = BeautifulSoup(r.text, "html.parser")
+        for block in soup.select(".gme_consultazioni_content")[:6]:
+            text = " ".join(block.get_text(" ", strip=True).split())
+            if len(text) < 40:
+                continue
+            date = _date(text)
+            m = re.search(r"(DCO\s*N?\.?\s*\d+/\d{4})", text, re.I)
+            title = text[:140]
+            dm = re.search(r"\d{2}/\d{2}/20\d{2}\s+(.{10,140}?)(?:\sCon\b|\sIl\b|\sA\b|$)", text)
+            if dm:
+                title = dm.group(1).strip(" .–-")
+            key = slugify(m.group(1)) if m else slugify(title)[:60]
+            pdf = block.select_one('a[href*=".pdf"]')
+            url = urljoin(BASE, pdf["href"].replace("\\", "")) if pdf else CONSULTATIONS
+            sid = f"gme-consultation-{key}"
+            found.setdefault(sid, Candidate(sid, f"GME consultation: {title}", date, url))
+    except CollectorError:
+        pass
+
     if not found:
         raise CollectorError("GME discovery returned no candidates")
-    return f"{NEWS}?Market=E + DTF rules", list(found.values())
+    return f"{NEWS}?Market=E + DTF rules + consultations", list(found.values())
 
 
 def fetch_content(session, candidate: Candidate) -> str:
