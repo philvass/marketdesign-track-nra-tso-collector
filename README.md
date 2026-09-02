@@ -31,6 +31,7 @@ editorial review.
 | `nordpool` | Nord Pool | exchange-message-list RSS (full bodies inline; UMM/operational feeds never touched) |
 | `omie` | OMIE | notas-de-prensa listing (PDFs; monthly price reports excluded) |
 | `gme` | GME | electricity news archive (results-noise filtered) + DTF technical rules |
+| `epex` | EPEX SPOT | newsroom listing (noise-filtered; 20s pacing + empty-202 WAF guard) |
 
 Deferred: **Elia** (elia.be) — hard Cloudflare JS challenge on every path; needs a
 real browser (Playwright) to scrape. Most Elia rule changes surface via CREG

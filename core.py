@@ -160,6 +160,13 @@ def init_db(path: Path) -> sqlite3.Connection:
     return db
 
 
+def was_submitted(db: sqlite3.Connection, source_id: str) -> bool:
+    row = db.execute(
+        "SELECT submitted_at FROM acquired_documents WHERE source_id=?", (source_id,)
+    ).fetchone()
+    return bool(row and row[0])
+
+
 def is_unchanged(db: sqlite3.Connection, source_id: str, digest: str) -> bool:
     row = db.execute(
         "SELECT content_hash, submitted_at FROM acquired_documents WHERE source_id=?",
@@ -251,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="Discover + fetch + normalise, but never submit")
     p.add_argument("--bootstrap-state", action="store_true", help="Record current documents as baseline without submitting")
     p.add_argument("--limit", type=int, default=1, help="Maximum documents to process (default: 1)")
+    p.add_argument("--max-age-days", type=int, default=int(os.getenv("MAX_AGE_DAYS", "30")),
+                   help="Freshness gate: never submit a first-time document older than this (default 30); it is baselined instead. Updates to previously submitted documents are exempt.")
     p.add_argument("--match", help="Only process candidates whose title/source_id contains this text")
     p.add_argument("--track-url", default=os.getenv("TRACK_INGEST_URL", DEFAULT_TRACK_URL))
     p.add_argument("--token", default=os.getenv("TRACK_INGEST_TOKEN"))
@@ -306,6 +315,15 @@ def main(argv: list[str] | None = None) -> int:
         payload = build_payload(source, candidate, content)
         digest = content_hash(payload)
         duplicate = is_unchanged(db, candidate.source_id, digest)
+        previously_submitted = was_submitted(db, candidate.source_id)
+        stale = False
+        if candidate.publication_date and not previously_submitted:
+            from datetime import date, datetime as _dt
+            try:
+                age = (date.today() - _dt.strptime(candidate.publication_date, "%Y-%m-%d").date()).days
+                stale = age > args.max_age_days
+            except ValueError:
+                pass
         record_seen(db, candidate, digest)
         item = {
             "candidate": asdict(candidate),
@@ -315,10 +333,17 @@ def main(argv: list[str] | None = None) -> int:
             "submitted": False,
             "track_response": None,
         }
+        item["stale"] = stale
         if args.bootstrap_state:
             if not duplicate:
                 mark_bootstrapped(db, candidate.source_id)
             item["bootstrapped"] = not duplicate
+        elif args.submit and stale and not duplicate:
+            # Freshness gate: TRACK is a monitor, not an archive. First-time
+            # documents older than the age limit are baselined silently — this
+            # also makes a lost state cache flood-proof.
+            mark_bootstrapped(db, candidate.source_id)
+            item["stale_baselined"] = True
         elif args.submit and not duplicate:
             response = submit(session, args.track_url, payload, args.token)
             mark_submitted(db, candidate.source_id, response)
