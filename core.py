@@ -87,11 +87,19 @@ def slugify(text: str, max_len: int = 80) -> str:
 
 
 def extract_pdf_text(pdf_bytes: bytes, max_chars: int = MAX_CONTENT_CHARS) -> str:
-    reader = PdfReader(io.BytesIO(pdf_bytes))
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        if reader.is_encrypted:
+            reader.decrypt("")
+    except Exception as exc:
+        raise CollectorError(f"PDF could not be parsed: {exc}")
     parts: list[str] = []
     size = 0
     for page in reader.pages:
-        text = page.extract_text() or ""
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            continue
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         if not text:
@@ -285,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
             content = source.fetch_content(session, candidate)
             if len(content) < 200:
                 raise CollectorError(f"Too little source text extracted from {candidate.url}")
-        except RuntimeError as exc:
+        except Exception as exc:
             results.append({
                 "candidate": asdict(candidate),
                 "skipped": True,

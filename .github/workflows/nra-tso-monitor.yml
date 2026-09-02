@@ -70,6 +70,7 @@ jobs:
           TRACK_INGEST_URL: ${{ vars.TRACK_INGEST_URL }}
           TRACK_INGEST_TOKEN: ${{ secrets.TRACK_INGEST_TOKEN }}
         run: |
+          set -o pipefail
           MODE="${{ github.event.inputs.mode || 'submit' }}"
           LIMIT="${{ github.event.inputs.limit || '25' }}"
           case "$MODE" in

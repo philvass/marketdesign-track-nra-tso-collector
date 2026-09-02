@@ -2,3 +2,4 @@ requests>=2.32
 beautifulsoup4>=4.12
 lxml>=5.0
 pypdf>=4.0
+cryptography>=42.0
