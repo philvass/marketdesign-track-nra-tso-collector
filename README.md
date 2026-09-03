@@ -48,6 +48,22 @@ python core.py --source ofgem --submit --limit 5
 Modes: `--dry-run` (default), `--bootstrap-state` (record baseline, submit
 nothing), `--submit`. State: `./state/<source>.sqlite3`.
 
+### Freshness gate
+
+TRACK is a monitor, not an archive, so a document first seen more than
+`--max-age-days` (default 30) after publication is baselined rather than
+submitted. When discovery already knows the publication date, that decision is
+made *before* the fetch: the document is recorded as `STALE_SKIPPED_NOT_FETCHED`
+with an empty content hash and never requested. The skip is sticky, so it costs
+one decision rather than one request per run, which matters on sources that
+rate-limit (EPEX serves an empty HTTP 202 once an IP exceeds its budget).
+
+Documents already fetched at least once keep being re-fetched, so change
+detection on anything in TRACK is unaffected. An adapter whose `fetch_content`
+may overwrite a publication date supplied by discovery must set
+`DATE_REFINED_ON_FETCH = True` to opt out of the pre-fetch skip (currently only
+`acm`).
+
 ### Content guards
 
 Before submission, `core.py` drops any extraction shorter than 200 characters

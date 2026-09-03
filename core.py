@@ -10,6 +10,10 @@ primary-source documents to the TRACK /ingest/document contract. Each source
   discover(session) -> (discovery_url, list[Candidate])
   fetch_content(session, candidate) -> str
   is_out_of_scope(candidate) -> bool     (optional)
+  DATE_REFINED_ON_FETCH: bool            (optional; set when fetch_content may
+                                          replace a publication_date that
+                                          discovery already supplied, which
+                                          disables the pre-fetch freshness skip)
 """
 from __future__ import annotations
 
@@ -25,13 +29,14 @@ import sys
 import time
 import unicodedata
 from dataclasses import dataclass, asdict
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
 import requests
 from pypdf import PdfReader
 
-VERSION = "v21.1-nra-tso-automation-1"
+VERSION = "v21.2-nra-tso-automation-1"
 DEFAULT_TRACK_URL = "https://marketdesign.ai/ingest/document"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -260,6 +265,59 @@ def mark_submitted(db: sqlite3.Connection, source_id: str, response: dict) -> No
     db.commit()
 
 
+STALE_SKIP_DISPOSITION = "STALE_SKIPPED_NOT_FETCHED"
+
+
+def over_age(publication_date: str | None, max_age_days: int) -> bool:
+    """True when a known publication date is already past the freshness limit.
+
+    An unknown or unparseable date is never over-age: the caller must fetch and
+    let the post-fetch gate decide.
+    """
+    if not publication_date:
+        return False
+    try:
+        age = (date.today() - datetime.strptime(publication_date, "%Y-%m-%d").date()).days
+    except ValueError:
+        return False
+    return age > max_age_days
+
+
+def never_fetched(db: sqlite3.Connection, source_id: str) -> bool:
+    """True when a document has no content on record — unseen, or only ever
+    skipped as over-age. Anything fetched before keeps being re-checked, so
+    change detection on documents already in TRACK is unaffected."""
+    row = db.execute(
+        "SELECT track_disposition FROM acquired_documents WHERE source_id=?", (source_id,)
+    ).fetchone()
+    return row is None or row[0] == STALE_SKIP_DISPOSITION
+
+
+def mark_stale_skipped(db: sqlite3.Connection, candidate: Candidate, baseline: bool) -> None:
+    """Record an over-age document without fetching it.
+
+    content_hash stays empty so the row can never be mistaken for collected
+    content, and the disposition keeps the pre-fetch skip sticky across runs.
+    """
+    db.execute(
+        """
+        INSERT INTO acquired_documents(source_id,content_hash,source_url,publication_date,
+                                       title,track_disposition,submitted_at)
+        VALUES(?,'',?,?,?,?,CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END)
+        ON CONFLICT(source_id) DO UPDATE SET
+          source_url=excluded.source_url,
+          publication_date=excluded.publication_date,
+          title=excluded.title,
+          track_disposition=excluded.track_disposition,
+          last_seen_at=CURRENT_TIMESTAMP,
+          submitted_at=COALESCE(acquired_documents.submitted_at, excluded.submitted_at)
+        """,
+        (candidate.source_id, candidate.url, candidate.publication_date, candidate.title,
+         STALE_SKIP_DISPOSITION, 1 if baseline else 0),
+    )
+    db.commit()
+
+
 def mark_bootstrapped(db: sqlite3.Connection, source_id: str) -> None:
     db.execute(
         """
@@ -336,6 +394,27 @@ def main(argv: list[str] | None = None) -> int:
                 })
                 continue
 
+            if (not getattr(source, "DATE_REFINED_ON_FETCH", False)
+                    and over_age(candidate.publication_date, args.max_age_days)
+                    and never_fetched(db, candidate.source_id)):
+                # Freshness gate, applied before the request: a first-time
+                # document already past the age limit can only ever be
+                # baselined, so fetching it spends a request (and, on
+                # rate-limited sources, part of a scarce budget) on content
+                # that is discarded.
+                mark_stale_skipped(db, candidate,
+                                   baseline=bool(args.submit or args.bootstrap_state))
+                results.append({
+                    "candidate": asdict(candidate),
+                    "skipped": True,
+                    "skip_reason": (f"over_age (published {candidate.publication_date}, "
+                                    f"limit {args.max_age_days}d)"),
+                    "stale": True,
+                    "submitted": False,
+                    "track_response": None,
+                })
+                continue
+
             content = source.fetch_content(session, candidate)
             if len(content) < 200:
                 raise CollectorError(f"Too little source text extracted from {candidate.url}")
@@ -355,14 +434,8 @@ def main(argv: list[str] | None = None) -> int:
         digest = content_hash(payload)
         duplicate = is_unchanged(db, candidate.source_id, digest)
         previously_submitted = was_submitted(db, candidate.source_id)
-        stale = False
-        if candidate.publication_date and not previously_submitted:
-            from datetime import date, datetime as _dt
-            try:
-                age = (date.today() - _dt.strptime(candidate.publication_date, "%Y-%m-%d").date()).days
-                stale = age > args.max_age_days
-            except ValueError:
-                pass
+        stale = (not previously_submitted
+                 and over_age(candidate.publication_date, args.max_age_days))
         record_seen(db, candidate, digest)
         item = {
             "candidate": asdict(candidate),

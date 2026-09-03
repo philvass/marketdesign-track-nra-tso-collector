@@ -15,6 +15,9 @@ from bs4 import BeautifulSoup
 from core import Candidate, CollectorError, get_with_retry, extract_pdf_text, html_to_text, slugify, MAX_CONTENT_CHARS
 
 INSTITUTION = "ACM"
+# fetch_content replaces the listing date with the page's <time> value, so the
+# discovery-time date is not authoritative enough for the pre-fetch age skip.
+DATE_REFINED_ON_FETCH = True
 DOCUMENT_TYPE = "REGULATOR"
 
 BASE = "https://www.acm.nl"
