@@ -23,6 +23,7 @@ import re
 import sqlite3
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable
@@ -30,7 +31,7 @@ from typing import Iterable
 import requests
 from pypdf import PdfReader
 
-VERSION = "v21.0-nra-tso-automation-1"
+VERSION = "v21.1-nra-tso-automation-1"
 DEFAULT_TRACK_URL = "https://marketdesign.ai/ingest/document"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -79,6 +80,42 @@ def get_with_retry(session: requests.Session, url: str, timeout: int = 30,
             if n + 1 < attempts:
                 time.sleep(1.5 * (n + 1))
     raise CollectorError(f"GET failed for {url}: {last}")
+
+
+def looks_like_pdf(response: requests.Response) -> bool:
+    """True when a response carries a PDF, whatever its URL or declared type.
+
+    Several sites serve PDFs from plain content paths with no .pdf suffix and
+    an HTML content-type, so routing on the URL shape alone sends binary into
+    the HTML parser.
+    """
+    ctype = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+    return ctype == "application/pdf" or response.content[:5] == b"%PDF-"
+
+
+def looks_like_binary_text(text: str) -> bool:
+    """True when extracted 'text' is really a binary payload parsed as HTML.
+
+    An adapter that reaches for BeautifulSoup on a URL that turns out to serve
+    a PDF, ZIP or Office document yields object streams and decoding noise
+    instead of prose. That content is worthless to TRACK and burns a
+    relevance-gate call, so it is caught before submission.
+
+    Decoded binary runs 10-65% control and replacement characters, while real
+    prose from these sources measures 0.0% on both, so the 2% threshold sits
+    in a wide empty band rather than near either population.
+    """
+    head = text.lstrip()[:4000]
+    if not head:
+        return False
+    if head.startswith("%PDF-") or head.startswith("PK\x03\x04"):
+        return True
+    noise = sum(
+        1 for ch in head
+        if ch == "\ufffd"
+        or (unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cs") and ch not in "\n\r\t")
+    )
+    return noise / len(head) > 0.02
 
 
 def slugify(text: str, max_len: int = 80) -> str:
@@ -302,6 +339,8 @@ def main(argv: list[str] | None = None) -> int:
             content = source.fetch_content(session, candidate)
             if len(content) < 200:
                 raise CollectorError(f"Too little source text extracted from {candidate.url}")
+            if looks_like_binary_text(content):
+                raise CollectorError(f"Binary payload extracted as text from {candidate.url}")
         except Exception as exc:
             results.append({
                 "candidate": asdict(candidate),

@@ -48,6 +48,15 @@ python core.py --source ofgem --submit --limit 5
 Modes: `--dry-run` (default), `--bootstrap-state` (record baseline, submit
 nothing), `--submit`. State: `./state/<source>.sqlite3`.
 
+### Content guards
+
+Before submission, `core.py` drops any extraction shorter than 200 characters
+or one that `looks_like_binary_text` flags — a PDF, ZIP or Office file served
+from a URL that looks like a page and therefore parsed as HTML. Such documents
+appear in the run report as `fetch_error: Binary payload extracted as text`.
+Adapters should route on `looks_like_pdf(response)` rather than the URL suffix,
+since several sources serve PDFs from plain content paths.
+
 ## Production behavior (GitHub Actions)
 
 - Matrix job over all six sources every 6 hours (minute 37), max 2 in parallel.

@@ -14,7 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
-from core import Candidate, CollectorError, get_with_retry, extract_pdf_text, html_to_text, slugify, MAX_CONTENT_CHARS
+from core import Candidate, CollectorError, get_with_retry, extract_pdf_text, html_to_text, looks_like_pdf, slugify, MAX_CONTENT_CHARS
 
 INSTITUTION = "NESO"
 DOCUMENT_TYPE = "TSO"
@@ -90,8 +90,12 @@ def discover(session):
 
 
 def fetch_content(session, candidate: Candidate) -> str:
-    if "/document/" in candidate.url and candidate.url.rstrip("/").endswith("download"):
-        r = get_with_retry(session, candidate.url, timeout=90)
+    r = get_with_retry(session, candidate.url, timeout=90)
+
+    # NESO serves PDFs both from /document/{id}/download and straight from
+    # plain content paths (e.g. /gc0186-workgroup-consultation), so trust the
+    # response rather than the URL shape.
+    if looks_like_pdf(r):
         if not candidate.title:
             cd = r.headers.get("content-disposition") or ""
             m = re.search(r'filename="([^"]+)"', cd)
@@ -99,7 +103,6 @@ def fetch_content(session, candidate: Candidate) -> str:
                 candidate.title = m.group(1).rsplit(".", 1)[0]
         return extract_pdf_text(r.content)
 
-    r = get_with_retry(session, candidate.url, timeout=45)
     soup = BeautifulSoup(r.text, "html.parser")
     h1 = soup.find("h1")
     if h1:
