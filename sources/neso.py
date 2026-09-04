@@ -129,6 +129,17 @@ def fetch_content(session, candidate: Candidate) -> str:
     return text
 
 
+# Grid Code (GC0186) and CUSC (CMP479) modification proposals. Discovery pulls
+# the code-modification sitemap wholesale, so these arrive on every run; they are
+# connection standards and use-of-system charging, which TRACK does not cover.
+# Deliberately narrow: BSC modifications (P462, P521 — via elexon.py) and
+# Capacity Market items are market design and must keep passing. Requiring
+# digits stops the prefixes matching ordinary words.
+CODE_MOD_OUT_OF_SCOPE = re.compile(r"\b(?:gc|cmp)\d{3,4}\b")
+
+
 def is_out_of_scope(candidate: Candidate) -> bool:
     t = candidate.title.lower()
-    return any(x in t for x in ("gas ", "hydrogen", "vacanc", "careers", "annual report and accounts"))
+    if any(x in t for x in ("gas ", "hydrogen", "vacanc", "careers", "annual report and accounts")):
+        return True
+    return bool(CODE_MOD_OUT_OF_SCOPE.search(t))
