@@ -89,6 +89,44 @@ def discover(session):
     return f"{BASE}/rss.xml + code-modification sitemap", list(found.values())
 
 
+MIN_PDF_TEXT = 200
+
+
+def _pdf_text_or_refuse(session, url: str, response) -> str:
+    """Extract a PDF's text, re-downloading once before giving up.
+
+    A PDF that yields no text is either a truncated or corrupt download, which a
+    second request usually fixes, or a scanned image, which nothing here can fix.
+    Returning the raw stream instead is the expensive failure: on 4 Sept 2026 a
+    NESO PDF whose extraction failed was stored as 86KB of object streams,
+    reached the analysis models, tokenised to 174k input tokens and cost $0.67
+    to produce an event that said the content was unreadable. One extra request
+    is far cheaper than that, so retry, then refuse.
+
+    Refusing raises, which core.py records as a skip. That loses the document —
+    but a document TRACK cannot read is not a document it can report on.
+    """
+    try:
+        text = extract_pdf_text(response.content)
+    except CollectorError:
+        text = ""
+    if len(text.strip()) >= MIN_PDF_TEXT:
+        return text
+
+    retry = get_with_retry(session, url, timeout=120)
+    try:
+        text = extract_pdf_text(retry.content)
+    except CollectorError as exc:
+        raise CollectorError(f"PDF text extraction failed twice for {url}: {exc}")
+    if len(text.strip()) >= MIN_PDF_TEXT:
+        return text
+
+    raise CollectorError(
+        f"PDF at {url} yielded no extractable text after a retry "
+        f"({len(response.content)} bytes downloaded); refusing to submit the raw stream"
+    )
+
+
 def fetch_content(session, candidate: Candidate) -> str:
     r = get_with_retry(session, candidate.url, timeout=90)
 
@@ -101,7 +139,7 @@ def fetch_content(session, candidate: Candidate) -> str:
             m = re.search(r'filename="([^"]+)"', cd)
             if m:
                 candidate.title = m.group(1).rsplit(".", 1)[0]
-        return extract_pdf_text(r.content)
+        return _pdf_text_or_refuse(session, candidate.url, r)
 
     soup = BeautifulSoup(r.text, "html.parser")
     h1 = soup.find("h1")
